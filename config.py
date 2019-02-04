@@ -1,7 +1,7 @@
 # Server Specific Configurations
 server = {
-    'port': '8080',
-    'host': '0.0.0.0'
+    'port': '6000',
+    'host': '127.0.0.1'
 }
 
 # Pecan Application Configurations
@@ -10,7 +10,7 @@ app = {
     'modules': ['pseudonym'],
     'static_root': '%(confdir)s/public',
     'template_path': '%(confdir)s/pseudonym/templates',
-    'debug': True
+    'debug': False
 }
 
 database = {

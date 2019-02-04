@@ -45,7 +45,7 @@ class Pseudonym:
         if not match:
             return False
 
-        self.username = match.groups()[1]
+        self.username = match.groups()[1].replace('/', '')
 
         return True
 
@@ -156,7 +156,8 @@ class Domain:
             match = Pseudonym.identify_url(url, self.name)
             if not match:
                 continue
-            self.pseudonyms[match.target] = match
+            if match.target not in self.pseudonyms:
+                self.pseudonyms[match.target] = match
 
         # remember the last time I fetched
         self.timestamp = time.time()
