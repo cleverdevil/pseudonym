@@ -7,6 +7,7 @@ import time
 import re
 import json
 import mf2py
+import mf2util
 
 
 # Connect to the database
@@ -158,10 +159,16 @@ class Identity:
         except:
             return None
 
-        # identify the representative h-card and store basic information
-        hcards = parser.to_dict(filter_by_type='h-card')
-        if len(hcards):
-            hcard = hcards[0]
+        # identify the representative h-card
+        parsed = parser.to_dict()
+        hcard = mf2util.representative_hcard(parsed, self.url)
+
+        if not hcard:
+            hcards = parser.to_dict(filter_by_type='h-card')
+            if len(hcards):
+                hcard = hcards[0]
+
+        if hcard:
             self.name = hcard['properties'].get('name', [None])[0]
             self.nicknames = hcard['properties'].get('nickname', None)
 

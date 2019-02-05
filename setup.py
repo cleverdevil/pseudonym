@@ -15,6 +15,7 @@ setup(
     install_requires=[
         "pecan",
         "mf2py",
+        "mf2util",
         "pymongo"
     ],
     test_suite='pseudonym',
