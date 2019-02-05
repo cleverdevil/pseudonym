@@ -142,7 +142,7 @@ Content Formatting
 
 If you'd like some help formatting your content for syndication, you can
 leverage Pseudonym to transform your content automatically for different
-syndication targets. Simply use Pseudonym's special "@{}" mention syntax. If you
+syndication targets. Simply use Pseudonym's special `@{}` mention syntax. If you
 want to "mention" me, you would use `@{https://cleverdevil.io}` or
 `@{cleverdevil.io}` for short in your post. Then, send that content to Pseudonym
 via an `HTTP POST`:
