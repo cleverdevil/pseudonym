@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from pecan import conf
 from pecan.jsonify import jsonify
 from pymongo import MongoClient, TEXT
@@ -10,16 +11,18 @@ import mf2py
 
 # Connect to the database
 client = MongoClient(conf.database.url)
-db = client.pseudonym
-db.domains.create_index([
-    ('domain', TEXT),
-    ('name', TEXT)
+db = client.identities
+db.identities.create_index([
+    ('url', TEXT),
+    ('name', TEXT),
+    ('nicknames', TEXT),
+    ('pseudonyms.username', TEXT)
 ])
 
 
 class Pseudonym:
     '''
-    Base class representing a "pseudonym" for a domain.
+    Base class representing a "pseudonym" for an identity.
 
     Subclasses simply set a "target" ('twitter', 'instagram')
     property and a "regex" property (a compiled regex which can
@@ -34,9 +37,9 @@ class Pseudonym:
     def __init_subclass__(cls, **kw):
         cls.registry[cls.target] = cls
 
-    def __init__(self, url, name, username=None):
+    def __init__(self, url, parent, username=None):
         self.url = url
-        self.name = name
+        self.parent = parent
         self.username = username
 
     @property
@@ -50,9 +53,9 @@ class Pseudonym:
         return True
 
     @classmethod
-    def identify_url(cls, url, name=None):
+    def identify_url(cls, url, parent):
         for PseudonymCls in cls.registry.values():
-            pseudonym = PseudonymCls(url, name)
+            pseudonym = PseudonymCls(url, parent)
             if pseudonym.matches:
                 return pseudonym
 
@@ -62,23 +65,22 @@ class Pseudonym:
 
     @property
     def mention_html(self):
-        name = self.name or ('@' + self.username)
+        name = self.parent.name or ('@' + self.username)
         return '<a href="' + self.url + '">' + name + '</a>'
 
     def __json__(self):
         return {
             'url': self.url,
             'username': self.username,
-            'name': self.name,
             'target': self.target
         }
 
     @classmethod
-    def from_json(cls, data):
+    def from_json(cls, data, parent):
         PseudonymCls = cls.registry[data['target']]
         return PseudonymCls(
             url=data['url'],
-            name=data['name'],
+            parent=parent,
             username=data['username']
         )
 
@@ -87,6 +89,13 @@ class Pseudonym:
 class TwitterPseudonym(Pseudonym):
     target = 'twitter'
     regex = re.compile(r'^https?\:\/\/(www\.)?twitter.com\/([\S]+\.?)')
+
+    @property
+    def matches(self):
+        match = super().matches
+        if match:
+            self.username = self.username.replace('intentuser?screen_name=', '')
+        return match
 
 
 class InstagramPseudonym(Pseudonym):
@@ -115,18 +124,28 @@ class KeybasePseudonym(Pseudonym):
 
 
 
-class Domain:
+class Identity:
     '''
-    Represents an IndieWeb domain which is properly marked up
+    Represents an IndieWeb website (URL) which is properly marked up
     with microformats2, including rel-me links for each pseudonym,
     and a representative h-card (optional) which can be used to
     identify a name for this identity.
     '''
 
-    def __init__(self, domain, fetch=True):
-        self.domain = domain
+    def __init__(self, url, fetch=True):
+        parsed_url = urlparse(url)
+        if parsed_url.scheme not in ('http', 'https'):
+            raise 'Please provide an HTTP or HTTPS URL'
+
+        if parsed_url.path == '':
+            url = parsed_url.geturl() + '/'
+        else:
+            url = parsed_url.geturl()
+
+        self.url = url
         self.pseudonyms = {}
         self.name = None
+        self.nicknames = None
         self.timestamp = None
 
         if fetch:
@@ -134,26 +153,22 @@ class Domain:
 
     def fetch(self):
         # fetch the website and parse for microformats
-        url = 'http://' + self.domain + '/'
         try:
-            parser = mf2py.Parser(url=url)
+            parser = mf2py.Parser(url=self.url)
         except:
-            try:
-                url = url.replace('http://', 'https://')
-                parser = mf2py.Parser(url=url)
-            except:
-                return None
+            return None
 
         # identify the representative h-card and store basic information
         hcards = parser.to_dict(filter_by_type='h-card')
         if len(hcards):
             hcard = hcards[0]
             self.name = hcard['properties'].get('name', [None])[0]
+            self.nicknames = hcard['properties'].get('nickname', None)
 
         # identify rel-me links as pseudonyms
         matches = {}
         for url in parser.to_dict()['rels'].get('me', []):
-            match = Pseudonym.identify_url(url, self.name)
+            match = Pseudonym.identify_url(url, self)
             if not match:
                 continue
             if match.target not in self.pseudonyms:
@@ -166,20 +181,21 @@ class Domain:
         self.save()
 
     def save(self):
-        domain = db.domains.find_one({'domain': self.domain.lower()})
-        if domain:
-            db.domains.replace_one(
-                {'domain': self.domain.lower()},
+        identity = db.identities.find_one({'url': self.url})
+        if identity:
+            db.identities.replace_one(
+                {'url': self.url},
                 jsonify(self)
             )
         else:
-            db.domains.insert_one(jsonify(self))
+            db.identities.insert_one(jsonify(self))
 
     def __json__(self):
         return {
             'timestamp': self.timestamp,
-            'domain': self.domain,
+            'url': self.url,
             'name': self.name,
+            'nicknames': self.nicknames,
             'pseudonyms': [
                 jsonify(p) for p in self.pseudonyms.values()
             ]
@@ -187,32 +203,39 @@ class Domain:
 
     @classmethod
     def from_json(cls, data):
-        domain = cls(data['domain'], fetch=False)
-        domain.name = data['name']
-        domain.timestamp = data['timestamp']
+        identity = cls(data['url'], fetch=False)
+        identity.name = data['name']
+        identity.timestamp = data['timestamp']
         for pseudonym_data in data['pseudonyms']:
-            pseudonym = Pseudonym.from_json(pseudonym_data)
-            domain.pseudonyms[pseudonym.target] = pseudonym
-        return domain
+            pseudonym = Pseudonym.from_json(pseudonym_data, identity)
+            identity.pseudonyms[pseudonym.target] = pseudonym
+        return identity
 
     @classmethod
-    def find_or_fetch(cls, domain):
-        regex = re.compile(r'^(?!:\/\/)(?=.{1,255}$)((.{1,63}\.){1,127}(?![0-9]*$)[a-z0-9-]+\.?)$')
-        if not regex.match(domain):
+    def find_or_fetch(cls, url, force=False):
+        parsed_url = urlparse(url)
+        if parsed_url.scheme not in ('http', 'https'):
             return None
 
-        domain_doc = db.domains.find_one({'domain': domain.lower()})
-        if domain_doc:
-            if (time.time() - domain_doc['timestamp']) < 100:
-                return cls.from_json(domain_doc)
-        return cls(domain, fetch=True)
+        if parsed_url.path == '':
+            url = parsed_url.geturl() + '/'
+        else:
+            url = parsed_url.geturl()
+
+        if not force:
+            identity_doc = db.identities.find_one({'url': url})
+            if identity_doc:
+                if (time.time() - identity_doc['timestamp']) < conf.database.cache_seconds:
+                    return cls.from_json(identity_doc)
+
+        return cls(url, fetch=True)
 
     @classmethod
     def search(cls, term):
-        results = db.domains.find({'$text': {'$search': term}})
+        results = db.identities.find({'$text': {'$search': term}})
         return [
-            Domain.from_json(domain_doc)
-            for domain_doc in results
+            Identity.from_json(doc)
+            for doc in results
         ]
 
 
@@ -234,20 +257,44 @@ class Content:
             }
         }
 
-        match = self.regex.search(self.content)
-        if not match:
+        matches = self.regex.findall(self.content)
+        if not matches:
             return versions
 
-        domain = Domain(match.groups()[0])
-        for pseudonym in domain.pseudonyms.values():
-            versions[pseudonym.target] = {}
-            versions[pseudonym.target]['text'] = self.regex.sub(
-                pseudonym.mention_text,
-                self.content
-            )
-            versions[pseudonym.target]['html'] = self.regex.sub(
-                pseudonym.mention_html,
-                self.content
-            )
+        for match in matches:
+            try:
+                parsed_url = urlparse(match)
+            except:
+                continue
+
+            if parsed_url.scheme not in ('http', 'https'):
+                match = 'https://' + match
+                try:
+                    parsed_url = urlparse(match)
+                except:
+                    continue
+
+            if parsed_url.path == '':
+                match = parsed_url.geturl() + '/'
+            else:
+                match = parsed_url.geturl()
+
+            identity = Identity(match)
+
+            for pseudonym in identity.pseudonyms.values():
+                if pseudonym.target not in versions:
+                    versions[pseudonym.target] = {
+                        'text': self.content,
+                        'html': self.content
+                    }
+
+                versions[pseudonym.target]['text'] = self.regex.sub(
+                    pseudonym.mention_text,
+                    versions[pseudonym.target]['text']
+                )
+                versions[pseudonym.target]['html'] = self.regex.sub(
+                    pseudonym.mention_html,
+                    versions[pseudonym.target]['html']
+                )
 
         return versions

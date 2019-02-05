@@ -14,7 +14,8 @@ app = {
 }
 
 database = {
-    'url': 'mongodb://localhost:27017/'
+    'url': 'mongodb://localhost:27017/',
+    'cache_seconds': 24 * 60 * 60
 }
 
 logging = {
