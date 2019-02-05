@@ -269,18 +269,18 @@ class Content:
                 continue
 
             if parsed_url.scheme not in ('http', 'https'):
-                match = 'https://' + match
+                url = 'https://' + match
                 try:
-                    parsed_url = urlparse(match)
+                    parsed_url = urlparse(url)
                 except:
                     continue
 
             if parsed_url.path == '':
-                match = parsed_url.geturl() + '/'
+                url = parsed_url.geturl() + '/'
             else:
-                match = parsed_url.geturl()
+                url = parsed_url.geturl()
 
-            identity = Identity(match)
+            identity = Identity(url)
 
             for pseudonym in identity.pseudonyms.values():
                 if pseudonym.target not in versions:
@@ -289,13 +289,15 @@ class Content:
                         'html': self.content
                     }
 
-                versions[pseudonym.target]['text'] = self.regex.sub(
-                    pseudonym.mention_text,
-                    versions[pseudonym.target]['text']
+                text = versions[pseudonym.target]['text']
+                html = versions[pseudonym.target]['html']
+                versions[pseudonym.target]['text'] = text.replace(
+                    '@{' + match + '}',
+                    pseudonym.mention_text
                 )
-                versions[pseudonym.target]['html'] = self.regex.sub(
-                    pseudonym.mention_html,
-                    versions[pseudonym.target]['html']
+                versions[pseudonym.target]['html'] = html.replace(
+                    '@{' + match + '}',
+                    pseudonym.mention_html
                 )
 
         return versions
