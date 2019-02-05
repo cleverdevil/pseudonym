@@ -205,6 +205,7 @@ class Identity:
     def from_json(cls, data):
         identity = cls(data['url'], fetch=False)
         identity.name = data['name']
+        identity.nicknames = data['nicknames']
         identity.timestamp = data['timestamp']
         for pseudonym_data in data['pseudonyms']:
             pseudonym = Pseudonym.from_json(pseudonym_data, identity)
