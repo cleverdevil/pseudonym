@@ -9,7 +9,8 @@ of this code is available as a service at
 
 For example, on the IndieWeb, my identity is [my
 website](https://cleverdevil.io), which is published at
-[https://cleverdevil.io]. I am also present on a number of silos, including:
+[https://cleverdevil.io](https://cleverdevil.io). I am also present on a number
+of silos, including:
 
 * [@cleverdevil on Micro.blog](http://micro.blog/cleverdevil)
 * [@cleverdevil on Twitter](https://twitter.com/cleverdevil)
